@@ -3,15 +3,16 @@
 # A source-able function library (writeTextFile — no shebang, not executable).
 # Apps `source` it to get:
 #
-#   run_expected <exit> <stderr-regex> -- <cmd...>
-#     -> 0 if <cmd> exits <exit> AND stderr matches <stderr-regex>
-#     -> exits 1 (loudly) on any OTHER outcome: a different exit code, stderr
+#   run_expected <exit> <output-regex> -- <cmd...>
+#     -> 0 if <cmd> exits <exit> AND its combined stdout+stderr matches
+#        <output-regex>
+#     -> exits 1 (loudly) on any OTHER outcome: a different exit code, output
 #        that doesn't match, or success when a failure was expected
-#     Use <exit> 0 to assert a successful command whose stderr matches the regex.
+#     Use <exit> 0 to assert a successful command whose output matches the regex.
 #
 #   run_expected_any <sigs-assoc> -- <cmd...>
 #     -> 0 if <cmd> matches ANY signature in <sigs-assoc> (an associative
-#        array mapping exit code -> stderr-regex); compose success-or-error,
+#        array mapping exit code -> output-regex); compose success-or-error,
 #        or any of several errors
 #     -> exits 1 (loudly) on any OTHER outcome
 #     The signature map is a named associative array, so it is reusable and
@@ -67,6 +68,16 @@ pkgs.writeTextFile {
         run_expected 3 "boom" -- fail_boom
         rc=$?
         assert "$rc = 0" "expected failure should return 0"
+
+        ${teardown}
+      '';
+      matches-stdout = pkgs.runCommand "matches-stdout" { } ''
+        ${setup}
+
+        say_stdout() { echo "hello" >&1; return 0; }
+        run_expected 0 "hello" -- say_stdout
+        rc=$?
+        assert "$rc = 0" "regex should match stdout (got $rc)"
 
         ${teardown}
       '';
@@ -130,28 +141,27 @@ pkgs.writeTextFile {
     };
   text = ''
     # shellcheck shell=bash
-    # _run_match: run <cmd...>; 0 if the outcome matches any (exit, stderr-regex)
-    # pair in the map named by $1, else 1. Replays stdout on a match.
+    # _run_match: run <cmd...>; 0 if the outcome matches any (exit, output-regex)
+    # pair in the map named by $1, else 1. Replays combined output on a match.
     _run_match() {
       local -n sigmap="$1"
       shift
       [[ "$1" == "--" ]] && shift
-      local out err rc
+      local out rc
       out="$(mktemp)"
-      err="$(mktemp)"
-      "$@" >"$out" 2>"$err"
+      "$@" >"$out" 2>&1
       rc=$?
       local k
       for k in "''${!sigmap[@]}"; do
-        if [[ $rc -eq "$k" ]] && grep -qE "''${sigmap[$k]}" <<< "$(cat "$err")"; then
+        if [[ $rc -eq "$k" ]] && grep -qE "''${sigmap[$k]}" <<< "$(cat "$out")"; then
           cat "$out"
-          rm -f "$out" "$err"
+          rm -f "$out"
           return 0
         fi
       done
       echo "UNEXPECTED outcome (exit $rc): $*" >&2
-      cat "$err" >&2
-      rm -f "$out" "$err"
+      cat "$out" >&2
+      rm -f "$out"
       return 1
     }
 
