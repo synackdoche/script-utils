@@ -4,3 +4,10 @@ last = ["<defaulted>", "..."]
 
 [lets]
 sort = true
+
+[attrs]
+sort = true
+flatten = true
+merge = true
+name-style = "identifier"
+blank-lines = 0
