@@ -142,25 +142,26 @@ pkgs.writeTextFile {
   text = ''
     # shellcheck shell=bash
     # _run_match: run <cmd...>; 0 if the outcome matches any (exit, output-regex)
-    # pair in the map named by $1, else 1. Replays combined output on a match.
+    # pair in the map named by $1, else 1. Combined output is streamed live to
+    # the terminal (so long steps are observable) AND captured for the match.
     _run_match() {
       local -n sigmap="$1"
       shift
       [[ "$1" == "--" ]] && shift
       local out rc
       out="$(mktemp)"
-      "$@" >"$out" 2>&1
-      rc=$?
+      # tee streams output live while capturing it; PIPESTATUS preserves the
+      # command's own exit status (not tee's).
+      "$@" 2>&1 | tee "$out"
+      rc="''${PIPESTATUS[0]}"
       local k
       for k in "''${!sigmap[@]}"; do
         if [[ $rc -eq "$k" ]] && grep -qE "''${sigmap[$k]}" <<< "$(cat "$out")"; then
-          cat "$out"
           rm -f "$out"
           return 0
         fi
       done
       echo "UNEXPECTED outcome (exit $rc): $*" >&2
-      cat "$out" >&2
       rm -f "$out"
       return 1
     }
